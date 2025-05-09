@@ -83,7 +83,8 @@ def predict_cpd_duration(file, mdl_dict,filename):
     window_size = 3 #10, 5seconds #15
     freq = 4
     window_size = window_size * freq
-    cfg_file = tsfel.load_json("features_simple.json")
+    cfg_file = tsfel.get_features_by_domain("statistical")
+    cfg_file.update(tsfel.get_features_by_domain("temporal"))
     i = window_size
     while i < len(df):
         X_train = pd.Series([])
@@ -93,8 +94,13 @@ def predict_cpd_duration(file, mdl_dict,filename):
         window = df[t2:i]['eda_signal'].values
         #print(len(window))
         X_train = tsfel.time_series_features_extractor(cfg_file, window, n_jobs = 15, verbose = 0)
-        #print_to_file(f"X_train: {X_train}")
+        
+        # Convert Series to DataFrame and add index column to match training data format
+        X_train = pd.DataFrame(X_train)
+        X_train.index.name = 'Unnamed: 0'
+            
         y_pred = mdl.predict(X_train)
+        # print(f"Window {i}: Prediction = {y_pred}")  # Debug print
         if(y_pred == 1):
             #print_to_file(f"CPD Found")
             cpd_cnt = cpd_cnt + 1
@@ -104,6 +110,8 @@ def predict_cpd_duration(file, mdl_dict,filename):
             i = i + int(dur*freq)
         else:
             i = i+1    
+    
+    print(f"Found {len(index_arr)} changepoints")  # Debug print
     cpd_details = pd.DataFrame()
     cpd_details['CPD_Index'] = index_arr
     cpd_details['duration'] = duration_arr
@@ -267,7 +275,9 @@ def modify_values(df, threshold):
             df = insert_values(df, post_bkp.index, post_bkp_new_orig,'eda_signal_new_original')
             df = insert_values(df, post_bkp.index, post_bkp_new,'eda_signal_new')
             df = insert_one_value(df, post_bkp.index[0],std_change_new,'eda_signal_new')
-    df_new = df_new.append(df)
+    
+    # Use pd.concat instead of append
+    df_new = pd.concat([df_new, df], ignore_index=True)
     print(f"total df length: {len(df_new)}")
     return df_new
 

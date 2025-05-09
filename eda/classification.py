@@ -80,26 +80,39 @@ def load_data(data_name, data_folder, ids):
     all_features = pd.DataFrame()
     if (data_name == 'WESAD'):
         for id in ids:
-            features = pd.read_csv(f'{data_folder}/{id}/{id}_eda_features.csv')
-            all_features = all_features.append(features, ignore_index=True)
+            file_path = f'{data_folder}/{id}/{id}_eda_features.csv'
+            # print(f"Debug - Loading WESAD file: {file_path}")
+            features = pd.read_csv(file_path)
+            # print(f"Debug - WESAD features shape: {features.shape}")
+            # print(f"Debug - WESAD features columns: {features.columns}")
+            all_features = pd.concat([all_features, features], ignore_index=True)
     elif(data_name == 'sim_WESAD' or data_name == 'sim_aug_WESAD'):
         for id in ids:
-            features = pd.read_csv(f'{data_folder}/{id}_eda_features.csv')
-            all_features = all_features.append(features, ignore_index=True)
+            file_path = f'{data_folder}/{id}_eda_features.csv'
+            # print(f"Debug - Loading simulated file: {file_path}")
+            features = pd.read_csv(file_path)
+            # print(f"Debug - Simulated features shape: {features.shape}")
+            # print(f"Debug - Simulated features columns: {features.columns}")
+            all_features = pd.concat([all_features, features], ignore_index=True)
+    # print(f"Debug - Final all_features shape: {all_features.shape}")
+    # print(f"Debug - Final all_features columns: {all_features.columns}")
     return all_features
 
 
 def model_training(data_name, mdl, train_data, test_data):
     #extract only labels 1 and 2 for real data ------0 1 for sim data
-    print(train_data.head(5))
+    # print(f"Debug - Train data shape before filtering: {train_data.shape}")
+    # print(f"Debug - Train data columns before filtering: {train_data.columns}")
     if (data_name=="WESAD"):
         train_data = train_data[(train_data['label'] == 1) | (train_data['label'] == 2)]
         test_data = test_data[(test_data['label'] == 1) | (test_data['label'] == 2)]
     else:
         train_data = train_data[(train_data['label'] == 0) | (train_data['label'] == 1)]
         test_data = test_data[(test_data['label'] == 0) | (test_data['label'] == 1)]
+    # print(f"Debug - Train data shape after filtering: {train_data.shape}")
+    # print(f"Debug - Train data columns after filtering: {train_data.columns}")
     X_train = train_data.iloc[:, 1:-1]
-    print(X_train.head(10))
+    # print(X_train.head(10))
     y_train = train_data.iloc[:, -1]
     #print(y_train.head(10))
     X_test = test_data.iloc[:, 1:-1]
@@ -142,7 +155,7 @@ def main():
     #generate features
     generate_features(data_name, data_folder, freq, window_size)  #dont run this if you have already generated the features
 
-    mdls = ['LR', 'SVM', 'RF', 'KNN'] #['LR'] #
+    mdls = ['LR', 'RF', 'KNN'] #['SVM']
 
     #classification
     if (data_name == 'WESAD'):
@@ -158,10 +171,18 @@ def main():
             print(f"Testing patient {id}")
             train_ids = [id_ for id_ in ids if id_ != id]
             test_id = [id]
-            #print(f'{train_ids} | {test_id}')
+            # print(f"Debug - Train IDs: {train_ids}")
+            # print(f"Debug - Test ID: {test_id}")
 
             train_data = load_data(data_name, data_folder, train_ids)
             test_data = load_data(data_name, data_folder, test_id)
+            
+            # print(f"Debug - Train data loaded shape: {train_data.shape}")
+            # print(f"Debug - Test data loaded shape: {test_data.shape}")
+
+            if len(train_data) == 0 or len(test_data) == 0:
+                print(f"Warning: Empty data for patient {id}. Skipping...")
+                continue
 
             train_data_shuffled = train_data.sample(frac=1).reset_index(drop=True)
             test_data_shuffled = test_data.sample(frac=1).reset_index(drop=True)

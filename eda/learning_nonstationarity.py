@@ -40,11 +40,11 @@ def check_for_significance(pt_sample):
     for i in range(len(bkps)):
         #print(f'-------------------------------bkp: {i}: index: {bkps[i]}')
         if(i == 0):
-            pre_bkp = pt_sample[0:bkps[i]]
+            pre_bkp = pt_sample[:bkps[i]]
             post_bkp = pt_sample[bkps[i]:bkps[i+1]]
         elif(i == len(bkps)-1):
             pre_bkp = pt_sample[bkps[i-1]:bkps[i]]
-            post_bkp = pt_sample[bkps[i]:len(pt_sample)]
+            post_bkp = pt_sample[bkps[i]:]
         else:
             pre_bkp = pt_sample[bkps[i-1]:bkps[i]]
             post_bkp = pt_sample[bkps[i]:bkps[i+1]]
@@ -71,17 +71,22 @@ def type_of_change(pt_sample):
     pt_sample['mean_change'] = np.nan
     pt_sample['std_change'] = np.nan
     pt_sample['type_of_change'] = np.nan
+    
+    # Get the frequency (4Hz = 0.25 seconds)
+    freq = pd.Timedelta(seconds=0.25)
+    
     for i in range(len(bkps)):
         #print_to_file(f'-------------------------------bkp: {i}: index: {bkps[i]}')
         if(i == 0):
-            pre_bkp = pt_sample[0:bkps[i]]
-            post_bkp = pt_sample[bkps[i]:bkps[i+1]]
+            pre_bkp = pt_sample[:bkps[i]]
+            post_bkp = pt_sample[bkps[i]:bkps[i] + freq]
         elif(i == len(bkps)-1):
-            pre_bkp = pt_sample[bkps[i-1]+1:bkps[i]]
-            post_bkp = pt_sample[bkps[i]:len(pt_sample)]
+            pre_bkp = pt_sample[bkps[i-1]:bkps[i]]
+            post_bkp = pt_sample[bkps[i]:]
         else:
             pre_bkp = pt_sample[bkps[i-1]:bkps[i]]
-            post_bkp = pt_sample[bkps[i]:bkps[i+1]]
+            post_bkp = pt_sample[bkps[i]:bkps[i] + freq]
+            
         pre_mean = mean(pre_bkp['eda_signal'])
         post_mean = mean(post_bkp['eda_signal'])
         
@@ -144,14 +149,24 @@ def build_cpd_model(X_train):
     recall = []
     auroc_lst =[]
     auprc_lst = []
-    model = XGBClassifier(scale_pos_weight=estimate)
+    # model = XGBClassifier(scale_pos_weight=estimate)
+    model = XGBClassifier(
+        scale_pos_weight=estimate,
+        tree_method='gpu_hist',  # Use GPU accelerated algorithm
+        gpu_id=0,  # Use first GPU
+        predictor='gpu_predictor'  # Use GPU for prediction
+    )
     for id in ids:
         test_data = X_train[X_train['PID'] == id]
         train_data = X_train[X_train['PID'] != id]
 
         X_train_split = train_data.drop(columns=['y', 'PID'])
+        if 'Unnamed: 0' in X_train_split.columns:
+            X_train_split = X_train_split.drop(columns=['Unnamed: 0'])
         y_train = train_data['y']
         X_test = test_data.drop(columns=['y', 'PID'])
+        if 'Unnamed: 0' in X_test.columns:
+            X_test = X_test.drop(columns=['Unnamed: 0'])
         y_test = test_data['y']
 
         print_to_file(f"0s: {pd.Series(y_test).value_counts()[0]}, 1s: {pd.Series(y_test).value_counts()[1]}")
@@ -190,6 +205,8 @@ def build_cpd_model(X_train):
 
     mdl_result.to_csv(f"models/WESAD/classifier_021024.csv", index=False)
     X_train_total = X_train.drop(columns=['y', 'PID'])
+    if 'Unnamed: 0' in X_train_total.columns:
+        X_train_total = X_train_total.drop(columns=['Unnamed: 0'])
     y_train_total = X_train['y']
     model.fit(X_train_total, y_train_total)
     return model
@@ -214,8 +231,12 @@ def get_change_type_dist(all_type):
 def main():
     print("In Main")
     global DATASET
-    DATASET = str(sys.argv[1]) #get the type of data
-    input_folder = str(sys.argv[2]) #get the type of data
+    DATASET = str(sys.argv[1])  # WESAD
+    input_folder = str(sys.argv[2])  # data/WESAD/
+    window_size = int(sys.argv[3])  # 20
+    annonated_files = str(sys.argv[4])  # results/annotated/
+    bkps_count_file = str(sys.argv[5])  # results/counts/
+    mdl_file = str(sys.argv[6])  # results/mdl.pkl
 
     all_type_of_change = []
     all_means = []
@@ -230,11 +251,12 @@ def main():
     if (DATASET=='WESAD'):
         print (DATASET)
         learning_Ids = pd.read_csv(f'data/{DATASET}_learning_ids.csv')['ID'].tolist() #['S4', 'S9'] 
-        annonated_files = str(sys.argv[3]) #folder ro save them in 
         frequency = 4 #700Hz
-        window_size =  str(sys.argv[4]) 
-    bkps_count_file = str(sys.argv[5])
-    mdl_file = str(sys.argv[5]) #pickle file
+        window_size = window_size
+        bkps_count_file = bkps_count_file
+        mdl_file = mdl_file
+
+    print(f"learning_Ids: {learning_Ids}, annonated_files: {annonated_files}, frequency: {frequency}, window_size: {window_size}, bkps_count_file: {bkps_count_file}, mdl_file: {mdl_file}")
 
     now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     print_to_file(f"{now}-----------------------------NOW STARTING A NEW RUN- LEARNING.PY")
@@ -252,9 +274,15 @@ def main():
         #load eda data 
         pt_sample = pd.read_csv(f'{input_folder}/{patient_id}/{patient_id}_eda.csv')
         pt_sample['cpd'] = 0
+        pt_sample['PtID'] = patient_id  # Add patient_id column
         print_to_file(f"i: {i} || Working on patient: {learning_Ids[i]}. Patient length: {len(pt_sample)}")
         pt_sample = pt_sample.dropna()
-        #pt_sample.set_index("dates", inplace=True)
+        
+        # Create synthetic datetime index based on 4Hz sampling rate
+        start_time = pd.Timestamp('2024-01-01 00:00:00')
+        pt_sample.index = [start_time + pd.Timedelta(seconds=i/4) for i in range(len(pt_sample))]
+        # Add dates column while keeping the index
+        pt_sample['dates'] = pt_sample.index
         
         print_to_file("Get the change point and duration")
         trends = eda_utils.identify_df_trends(pt_sample, "eda_signal", frequency, window_size)
@@ -269,7 +297,7 @@ def main():
         pt_list.append(learning_Ids[i])
 
         #get the duration from the samples length
-        pt_data['duration'] = pt_data['duration_samples']/frequency #in seconds 
+        pt_data['duration'] = pt_data['duration']/frequency #in seconds 
         
         #find the drastic jumps in the data (glucose at t - glucose at t-1)
         #pt_data['time_diff'] = pt_data['dates'].diff()
@@ -354,7 +382,9 @@ def main():
     bkps_df['PtID'] = pt_list
     bkps_df['before_checking'] = bkps_before
     bkps_df['after_checking'] = bkps_after
-    bkps_df.to_csv(bkps_count_file)
+    # Create directory if it doesn't exist and use a proper file path
+    os.makedirs(os.path.dirname(bkps_count_file), exist_ok=True)
+    bkps_df.to_csv(os.path.join(bkps_count_file, 'changepoint_counts.csv'))
     print_to_file(f"{now}-----------------------------END OF THE RUN- LEARNING.PY")
 
 

@@ -61,12 +61,25 @@ def predict_cpd_duration_1(file, filename, cpd_count, min_duration, max_duration
 
 def generate_indices(data_len, mindist, cpd_count):
     '''
-    Genrate the random indices for the chnagepoints
+    Generate the random indices for the changepoints
     such that min duration is maintained between the generated changepoints
     '''
-    range_size = data_len - ((mindist - 1) * (cpd_count -1)) 
-    print(range_size)
-    #return [(mindist-1)*i + x for i, x in enumerate(sorted(random.sample(range(range_size), cpd_count)))]
+    range_size = data_len - ((mindist - 1) * (cpd_count - 1))
+    print(f"Debug - Data length: {data_len}, Min distance: {mindist}, Requested CPD count: {cpd_count}")
+    print(f"Debug - Available range size: {range_size}")
+    
+    # If range_size is too small, adjust cpd_count
+    if range_size <= 0:
+        # Calculate maximum possible changepoints
+        max_cpds = max(1, (data_len - 1) // mindist)
+        print(f"Debug - Adjusting CPD count from {cpd_count} to {max_cpds} due to space constraints")
+        cpd_count = max_cpds
+        range_size = data_len - ((mindist - 1) * (cpd_count - 1))
+    
+    # Ensure we have at least one valid position
+    if range_size <= 1:
+        return [data_len // 2]  # Return middle point if no space for multiple points
+    
     return [(mindist-1)*i + x for i, x in enumerate(sorted(random.sample(range(1, range_size), cpd_count)))]
 
 def predict_cpd_duration(file, filename, cpd_count_arr, duration, dist_type):
@@ -436,7 +449,8 @@ def modify_values(df, freq):
             df = insert_values(df, post_bkp.index, post_bkp_new,'eda_signal_new')
             df = insert_one_value(df, post_bkp.index[0],std_change_new,'std_change_new')
             #df = insert_values(df, post_bkp.index, mean_change_list,'mean_change_new')
-    df_new = df_new.append(df)
+    # Replace append with concat
+    df_new = pd.concat([df_new, df], ignore_index=True)
     print(f"total df length: {len(df_new)}")
     return df_new
 
@@ -461,12 +475,30 @@ def main():
         dist_type = '4'
         freq=4
         
+        print(f"Debug - Input folder: {input_folder}")
+        print(f"Debug - Output folder: {output_folder}")
+        print(f"Debug - CPD details folder: {cpd_details_folder}")
     
-    for file in glob.glob(input_folder):
+    # Add pattern for EDA files (not features files)
+    input_pattern = os.path.join(input_folder, "*_eda.csv")
+    print(f"Debug - Looking for files matching pattern: {input_pattern}")
+    
+    for file in glob.glob(input_pattern):
+        print(f"Debug - Found file: {file}")
         filename2 = os.path.basename(file)
         filename = os.path.splitext(filename2)[0].split('_')[0]
         print(f"{file}----{filename}")
         print_to_file(f"Processing: {file}")
+        
+        # Debug print to check file contents
+        try:
+            df = pd.read_csv(file)
+            print(f"Debug - File columns: {df.columns.tolist()}")
+            print(f"Debug - File shape: {df.shape}")
+        except Exception as e:
+            print(f"Debug - Error reading file: {e}")
+            continue
+            
         sim_data = predict_change_properties(file,filename,cpd_details_folder, cpd_count, duration, mean_change, std_change, dist_type)
         print_to_file("Done predicting change properties. Start modifying the values")
         sim_data = modify_values(sim_data,freq)
@@ -479,7 +511,7 @@ def main():
         #output_path = output_folder + filename2 
         output_path = os.path.join(output_folder,filename2)
         os.makedirs(output_folder, exist_ok=True) 
-        print(output_path)
+        print(f"Debug - Saving to: {output_path}")
         sim_data.to_csv(output_path)
     print_to_file("Done processing all files!")
 
