@@ -155,7 +155,7 @@ def main():
     #generate features
     generate_features(data_name, data_folder, freq, window_size)  #dont run this if you have already generated the features
 
-    mdls = ['LR', 'RF', 'KNN'] #['SVM']
+    mdls = ['LR', 'SVM','RF', 'KNN'] #['SVM']
 
     #classification
     if (data_name == 'WESAD'):
